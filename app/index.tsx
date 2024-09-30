@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Text,
   View,
@@ -6,7 +6,14 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  ImageBackground,
+  Keyboard,
+  Platform,
+  KeyboardAvoidingView,
+  Animated,
 } from "react-native";
+import { BlurView } from "expo-blur";
+import { Feather } from "@expo/vector-icons";
 import { OpenAI } from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY });
@@ -15,9 +22,32 @@ export default function Home() {
   const [feeling, setFeeling] = useState("");
   const [quote, setQuote] = useState("");
   const [loading, setLoading] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [quoteReady, setQuoteReady] = useState(false);
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      "keyboardDidShow",
+      () => setKeyboardVisible(true)
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      "keyboardDidHide",
+      () => setKeyboardVisible(false)
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
 
   const generateQuote = async () => {
     setLoading(true);
+    setQuoteReady(false);
+    Keyboard.dismiss();
+
     try {
       const systemPrompt =
         "You are a helpful assistant that generates inspirational quotes based on how someone is feeling.";
@@ -32,44 +62,100 @@ export default function Home() {
       });
 
       setQuote(response.choices[0].message?.content || "");
+      setQuoteReady(true);
     } catch (error) {
       console.error("Error generating quote:", error);
       setQuote(
         "Sorry, there was an error generating a quote. Please try again."
       );
+      setQuoteReady(true);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (quoteReady) {
+      slideAnim.setValue(50);
+      fadeAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 50, // Reduced from 400
+          friction: 20, // Reduced from 40
+          useNativeDriver: true,
+        }),
+        Animated.spring(fadeAnim, {
+          toValue: 1,
+          tension: 50, // Reduced from 400
+          friction: 20, // Reduced from 40
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [quoteReady]);
+
   return (
-    <SafeAreaView className="bg-white dark:bg-slate-900 flex-1">
-      <View className="p-4 items-center justify-center h-full">
-        <Text className="text-2xl font-bold text-blue-500 dark:text-blue-400 text-center mb-4">
-          Let's generate some quotes!
-        </Text>
-        <TextInput
-          className="border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-50 rounded-md p-2 w-full mb-4"
-          placeholder="How are you feeling today?"
-          value={feeling}
-          onChangeText={setFeeling}
-        />
-        <TouchableOpacity
-          className="bg-blue-500 rounded-md p-2 w-full mb-4"
-          onPress={generateQuote}
-          disabled={loading || !feeling}
-        >
-          <Text className="text-white text-center font-bold">
-            {loading ? "Generating..." : "Generate Quote"}
-          </Text>
-        </TouchableOpacity>
-        {loading && <ActivityIndicator size="large" color="#4299e1" />}
-        {quote && (
-          <Text className="text-gray-800 dark:text-gray-200 text-center mt-4">
-            {quote}
-          </Text>
-        )}
-      </View>
-    </SafeAreaView>
+    <ImageBackground
+      source={require("../assets/images/background-2.png")}
+      style={{ flex: 1 }}
+    >
+      <BlurView intensity={20} style={{ flex: 1 }}>
+        <SafeAreaView style={{ flex: 1 }}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1 }}
+          >
+            <View style={{ flex: 1 }}>
+              <View className="flex-1 justify-center items-center p-6">
+                {!loading && !quote && (
+                  <Text className="text-white text-3xl font-bold mb-6">
+                    How are you feeling?
+                  </Text>
+                )}
+                {loading ? (
+                  <ActivityIndicator size="large" color="#ffffff" />
+                ) : (
+                  <Animated.View
+                    className="rounded-xl p-4 w-full"
+                    style={{
+                      transform: [{ translateY: slideAnim }],
+                      opacity: fadeAnim,
+                    }}
+                  >
+                    <Text className="text-white text-center text-2xl italic">
+                      {quote}
+                    </Text>
+                  </Animated.View>
+                )}
+              </View>
+
+              <View className="p-4">
+                <View className="flex-row items-center">
+                  <View className="flex-1 bg-white/20 rounded-l-xl ">
+                    <TextInput
+                      className="bg-transparent text-white text-lg p-4 rounded-xl"
+                      placeholder="Enter your feeling..."
+                      placeholderTextColor="rgba(255,255,255,0.6)"
+                      value={feeling}
+                      onChangeText={setFeeling}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    className={`rounded-r-xl p-4 disabled:bg-white/20 ${
+                      feeling ? "bg-white/20" : "bg-white/50"
+                    }`}
+                    onPress={generateQuote}
+                    disabled={loading || !feeling}
+                  >
+                    <Feather name="send" size={24} color="white" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </BlurView>
+    </ImageBackground>
   );
 }
